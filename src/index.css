@@ -1243,3 +1243,74 @@ footer {
     z-index: 100;
   }
 }
+
+/* ===================================================
+   Voice Input & Output Styles
+   =================================================== */
+
+.mic-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  align-self: flex-end;
+  color: var(--text-muted);
+}
+
+.mic-btn:hover {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--green-light);
+}
+
+.mic-btn.listening {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  animation: mic-pulse 1s infinite;
+}
+
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+}
+
+.speak-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.speak-btn:hover {
+  background: rgba(34, 197, 94, 0.1);
+  color: var(--green-light);
+}
+
+.speak-btn.speaking {
+  color: var(--green-light);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.lang-badge {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 8px;
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  color: #a5b4fc;
+  font-weight: 600;
+}
