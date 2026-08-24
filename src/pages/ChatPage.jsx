@@ -120,7 +120,7 @@ export default function ChatPage() {
       return;
     }
     const recog = new SpeechRecognition();
-    recog.continuous = false;
+    recog.continuous = true;
     recog.interimResults = false;
     recog.lang = "te-IN"; // Default Telugu; browser auto-detects if user switches
     recognitionRef.current = recog;
