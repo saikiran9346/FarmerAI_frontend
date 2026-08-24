@@ -56,7 +56,12 @@ export default function ChatPage() {
   });
   const [liveAdvisory, setLiveAdvisory] = useState(null);
   const [summaryText, setSummaryText] = useState(null);
+  const [rawArtefacts, setRawArtefacts] = useState([]);
   const [intelLoading, setIntelLoading] = useState(false);
+
+  // Full Details Modal
+  const [showInsightsModal, setShowInsightsModal] = useState(false);
+  const [modalTab, setModalTab] = useState("summary");
 
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
@@ -124,6 +129,8 @@ export default function ChatPage() {
       const artRes = await getConversationArtefacts(msgsList);
       if (artRes.success && artRes.artefacts) {
         const arts = artRes.artefacts;
+        setRawArtefacts(arts);
+
         let crop = null;
         let land = null;
         let loc = null;
@@ -202,6 +209,7 @@ export default function ChatPage() {
     setLastAgent(null);
     setBotTyping(false);
     setFarmProfile({ crops: null, landSize: null, district: null, loanAmount: null, loanEmi: null });
+    setRawArtefacts([]);
     setLiveAdvisory(null);
     setSummaryText(null);
   };
@@ -211,6 +219,12 @@ export default function ChatPage() {
     setMessages([]);
     setLastAgent(null);
     setBotTyping(false);
+
+    // Reset profile for the selected conversation
+    setFarmProfile({ crops: null, landSize: null, district: null, loanAmount: null, loanEmi: null });
+    setRawArtefacts([]);
+    setLiveAdvisory(null);
+    setSummaryText(null);
 
     // 1. Instant load from local storage
     const saved = JSON.parse(localStorage.getItem(msgsKey(convId)) || "[]");
@@ -416,6 +430,13 @@ export default function ChatPage() {
             {agentInfo && <span className={`agent-badge ${agentInfo.class}`}>{agentInfo.label}</span>}
             <button
               className="panel-toggle-btn"
+              onClick={() => setShowInsightsModal(true)}
+              title="View full modal with raw Artefacts and Summary tabs"
+            >
+              ✨ Full Insights
+            </button>
+            <button
+              className="panel-toggle-btn"
               onClick={() => setPanelOpen(!panelOpen)}
               title="Toggle Live Farm Intelligence Dashboard"
             >
@@ -603,6 +624,103 @@ export default function ChatPage() {
           </div>
         )}
       </aside>
+
+      {/* 4. Full Insights & Summary Modal */}
+      {showInsightsModal && (
+        <div className="modal-overlay" onClick={() => setShowInsightsModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>✨ AI Farm Insights & Memory</h3>
+              <button className="modal-close" onClick={() => setShowInsightsModal(false)}>
+                ✕
+              </button>
+            </div>
+            <div className="modal-body">
+              <div className="modal-tabs">
+                <button
+                  className={`modal-tab-btn ${modalTab === "summary" ? "active" : ""}`}
+                  onClick={() => setModalTab("summary")}
+                >
+                  📝 Conversation Summary
+                </button>
+                <button
+                  className={`modal-tab-btn ${modalTab === "artefacts" ? "active" : ""}`}
+                  onClick={() => setModalTab("artefacts")}
+                >
+                  🏷️ Extracted Artefacts ({rawArtefacts.length})
+                </button>
+                <button
+                  className={`modal-tab-btn ${modalTab === "alerts" ? "active" : ""}`}
+                  onClick={() => setModalTab("alerts")}
+                >
+                  🔔 Smart Alerts
+                </button>
+              </div>
+
+              {modalTab === "summary" && (
+                <div>
+                  <h4 style={{ fontSize: "14px", color: "var(--green-light)", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    AI Generated Memory Summary
+                  </h4>
+                  {summaryText ? (
+                    <p style={{ background: "rgba(255,255,255,0.03)", padding: "16px", borderRadius: "12px", border: "1px solid var(--border)", lineHeight: "1.7", fontSize: "14px" }}>
+                      {summaryText}
+                    </p>
+                  ) : (
+                    <p style={{ color: "var(--text-muted)", fontSize: "14px" }}>
+                      No summary generated yet. Chat a bit more to generate a detailed session summary!
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {modalTab === "artefacts" && (
+                <div>
+                  <h4 style={{ fontSize: "14px", color: "var(--green-light)", marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    Extracted Farmer Entities & Preferences
+                  </h4>
+                  {rawArtefacts.length > 0 ? (
+                    <div className="artefact-grid">
+                      {rawArtefacts.map((art, idx) => (
+                        <div className="artefact-card" key={idx}>
+                          <div className="artefact-name">{art.artefact_name?.replace(/_/g, " ")}</div>
+                          <div className="artefact-val">{art.value}</div>
+                          {art.description && <div className="artefact-desc">{art.description}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p style={{ color: "var(--text-muted)", fontSize: "14px" }}>
+                      No artefacts detected in this chat yet. Try mentioning crops, acres, loan amount, or district!
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {modalTab === "alerts" && (
+                <div>
+                  <h4 style={{ fontSize: "14px", color: "var(--green-light)", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                    Personalized Smart Advisory
+                  </h4>
+                  <p style={{ fontSize: "13px", color: "var(--text-muted)", marginBottom: "14px" }}>
+                    Generated dynamically by pairing your farm profile artefacts with external weather/market news.
+                  </p>
+                  {liveAdvisory ? (
+                    <div className="notification-box">
+                      <h4>⚡ Real-time Advisory</h4>
+                      <p>{liveAdvisory}</p>
+                    </div>
+                  ) : (
+                    <p style={{ color: "var(--text-muted)", fontSize: "14px" }}>
+                      Provide farm details (crops, location) in chat to generate tailored advisories!
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
