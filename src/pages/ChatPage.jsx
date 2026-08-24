@@ -351,6 +351,15 @@ export default function ChatPage() {
   };
 
   const handleSend = async (text) => {
+    // Automatically stop microphone when user sends message
+    if (isListeningRef.current || listening) {
+      isListeningRef.current = false;
+      if (recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch (e) {}
+      }
+      setListening(false);
+    }
+
     const query = (text || input).trim();
     if (!query || botTyping) return;
     const convId = activeConvId || genConvId();
