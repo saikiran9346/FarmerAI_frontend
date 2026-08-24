@@ -62,6 +62,7 @@ export default function ChatPage() {
   // Full Details Modal
   const [showInsightsModal, setShowInsightsModal] = useState(false);
   const [modalTab, setModalTab] = useState("summary");
+  const [modalLoading, setModalLoading] = useState(false);
 
   const messagesEndRef = useRef(null);
   const textareaRef = useRef(null);
@@ -169,17 +170,27 @@ export default function ChatPage() {
         }
       }
 
-      // 3. Update Conversation Summary in background
-      if (msgsList.length >= 2) {
-        const sumRes = await getConversationSummary(msgsList);
-        if (sumRes.success) {
-          setSummaryText(sumRes.summary);
-        }
+      // 3. Update Conversation Summary
+      const sumRes = await getConversationSummary(msgsList);
+      if (sumRes.success) {
+        setSummaryText(sumRes.summary);
       }
     } catch (e) {
       console.error("Error analyzing farm context:", e);
     }
     setIntelLoading(false);
+  };
+
+  // Open Full Insights Modal with on-demand refresh
+  const handleOpenInsights = async () => {
+    setShowInsightsModal(true);
+    if (messages.length === 0) return;
+
+    if (!summaryText || rawArtefacts.length === 0) {
+      setModalLoading(true);
+      await analyzeFarmContext(messages);
+      setModalLoading(false);
+    }
   };
 
   const syncConversations = async (local = []) => {
@@ -220,7 +231,6 @@ export default function ChatPage() {
     setLastAgent(null);
     setBotTyping(false);
 
-    // Reset profile for the selected conversation
     setFarmProfile({ crops: null, landSize: null, district: null, loanAmount: null, loanEmi: null });
     setRawArtefacts([]);
     setLiveAdvisory(null);
@@ -315,7 +325,7 @@ export default function ChatPage() {
       saveMsgs(convId, finalMsgs);
       if (data.agent_used) setLastAgent(data.agent_used);
 
-      // Trigger automatic background analysis
+      // Trigger automatic analysis
       analyzeFarmContext(finalMsgs);
     } catch (e) {
       const errMsg = {
@@ -430,7 +440,7 @@ export default function ChatPage() {
             {agentInfo && <span className={`agent-badge ${agentInfo.class}`}>{agentInfo.label}</span>}
             <button
               className="panel-toggle-btn"
-              onClick={() => setShowInsightsModal(true)}
+              onClick={handleOpenInsights}
               title="View full modal with raw Artefacts and Summary tabs"
             >
               ✨ Full Insights
@@ -657,65 +667,78 @@ export default function ChatPage() {
                 </button>
               </div>
 
-              {modalTab === "summary" && (
-                <div>
-                  <h4 style={{ fontSize: "14px", color: "var(--green-light)", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                    AI Generated Memory Summary
-                  </h4>
-                  {summaryText ? (
-                    <p style={{ background: "rgba(255,255,255,0.03)", padding: "16px", borderRadius: "12px", border: "1px solid var(--border)", lineHeight: "1.7", fontSize: "14px" }}>
-                      {summaryText}
-                    </p>
-                  ) : (
-                    <p style={{ color: "var(--text-muted)", fontSize: "14px" }}>
-                      No summary generated yet. Chat a bit more to generate a detailed session summary!
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {modalTab === "artefacts" && (
-                <div>
-                  <h4 style={{ fontSize: "14px", color: "var(--green-light)", marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                    Extracted Farmer Entities & Preferences
-                  </h4>
-                  {rawArtefacts.length > 0 ? (
-                    <div className="artefact-grid">
-                      {rawArtefacts.map((art, idx) => (
-                        <div className="artefact-card" key={idx}>
-                          <div className="artefact-name">{art.artefact_name?.replace(/_/g, " ")}</div>
-                          <div className="artefact-val">{art.value}</div>
-                          {art.description && <div className="artefact-desc">{art.description}</div>}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p style={{ color: "var(--text-muted)", fontSize: "14px" }}>
-                      No artefacts detected in this chat yet. Try mentioning crops, acres, loan amount, or district!
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {modalTab === "alerts" && (
-                <div>
-                  <h4 style={{ fontSize: "14px", color: "var(--green-light)", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
-                    Personalized Smart Advisory
-                  </h4>
-                  <p style={{ fontSize: "13px", color: "var(--text-muted)", marginBottom: "14px" }}>
-                    Generated dynamically by pairing your farm profile artefacts with external weather/market news.
+              {modalLoading ? (
+                <div style={{ textAlign: "center", padding: "40px" }}>
+                  <div className="spinner" />
+                  <p style={{ marginTop: "16px", color: "var(--text-muted)", fontSize: "14px" }}>
+                    Analyzing conversation with Google Gemini...
                   </p>
-                  {liveAdvisory ? (
-                    <div className="notification-box">
-                      <h4>⚡ Real-time Advisory</h4>
-                      <p>{liveAdvisory}</p>
-                    </div>
-                  ) : (
-                    <p style={{ color: "var(--text-muted)", fontSize: "14px" }}>
-                      Provide farm details (crops, location) in chat to generate tailored advisories!
-                    </p>
-                  )}
                 </div>
+              ) : (
+                <>
+                  {modalTab === "summary" && (
+                    <div>
+                      <h4 style={{ fontSize: "14px", color: "var(--green-light)", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                        AI Generated Memory Summary
+                      </h4>
+                      {summaryText ? (
+                        <p style={{ background: "rgba(255,255,255,0.03)", padding: "16px", borderRadius: "12px", border: "1px solid var(--border)", lineHeight: "1.7", fontSize: "14px" }}>
+                          {summaryText}
+                        </p>
+                      ) : (
+                        <p style={{ color: "var(--text-muted)", fontSize: "14px" }}>
+                          {messages.length === 0
+                            ? "Start chatting to generate an AI summary!"
+                            : "Summary is generating... Click again in a moment or chat a bit more!"}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {modalTab === "artefacts" && (
+                    <div>
+                      <h4 style={{ fontSize: "14px", color: "var(--green-light)", marginBottom: "12px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                        Extracted Farmer Entities & Preferences
+                      </h4>
+                      {rawArtefacts.length > 0 ? (
+                        <div className="artefact-grid">
+                          {rawArtefacts.map((art, idx) => (
+                            <div className="artefact-card" key={idx}>
+                              <div className="artefact-name">{art.artefact_name?.replace(/_/g, " ")}</div>
+                              <div className="artefact-val">{art.value}</div>
+                              {art.description && <div className="artefact-desc">{art.description}</div>}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p style={{ color: "var(--text-muted)", fontSize: "14px" }}>
+                          No artefacts detected yet. Try mentioning crops, acres, loan amount, or district in this chat!
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {modalTab === "alerts" && (
+                    <div>
+                      <h4 style={{ fontSize: "14px", color: "var(--green-light)", marginBottom: "8px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                        Personalized Smart Advisory
+                      </h4>
+                      <p style={{ fontSize: "13px", color: "var(--text-muted)", marginBottom: "14px" }}>
+                        Generated dynamically by pairing your farm profile artefacts with external weather/market news.
+                      </p>
+                      {liveAdvisory ? (
+                        <div className="notification-box">
+                          <h4>⚡ Real-time Advisory</h4>
+                          <p>{liveAdvisory}</p>
+                        </div>
+                      ) : (
+                        <p style={{ color: "var(--text-muted)", fontSize: "14px" }}>
+                          Provide farm details (crops, location) in chat to generate tailored advisories!
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>
