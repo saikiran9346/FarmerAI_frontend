@@ -30,9 +30,15 @@ function genConvId() {
   return "conv_" + Date.now();
 }
 
-// ─── Voice Utils ────────────────────────────────────────────────
+// ─── Voice Recognition Setup ─────────────────────────────────────
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const voiceSupported = !!SpeechRecognition;
+
+const VOICE_LANGS = [
+  { code: "en-IN", label: "English" },
+  { code: "te-IN", label: "తెలుగు (Telugu)" },
+  { code: "hi-IN", label: "हिंदी (Hindi)" },
+];
 
 function detectLang(text) {
   if (/[\u0C00-\u0C7F]/.test(text)) return "te-IN";
@@ -52,9 +58,11 @@ export default function ChatPage() {
   const [convTitles, setConvTitles] = useState({});
 
   // Voice states
+  const [selectedVoiceLang, setSelectedVoiceLang] = useState("en-IN");
   const [listening, setListening] = useState(false);
   const [speakingIdx, setSpeakingIdx] = useState(null);
   const recognitionRef = useRef(null);
+  const isListeningRef = useRef(false);
 
   // Intelligence Panel
   const [panelOpen, setPanelOpen] = useState(true);
@@ -112,41 +120,92 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, botTyping]);
 
-  // ─── Voice Input ─────────────────────────────────────────────
+  // ─── Robust Voice Input (Live Speech-to-Text) ────────────────────
   const startListening = () => {
-    if (!voiceSupported) return alert("Voice input is not supported in this browser. Please use Chrome or Edge.");
-    if (listening) {
-      recognitionRef.current?.stop();
+    if (!voiceSupported) {
+      alert("Speech recognition is not supported in this browser. Please open FarmerAI in Google Chrome or Microsoft Edge.");
       return;
     }
-    const recog = new SpeechRecognition();
-    recog.continuous = true;
-    recog.interimResults = false;
-    recog.lang = "te-IN"; // Default Telugu; browser auto-detects if user switches
-    recognitionRef.current = recog;
 
-    recog.onstart = () => setListening(true);
-    recog.onend = () => setListening(false);
-    recog.onerror = () => setListening(false);
-    recog.onresult = (event) => {
-      const transcript = event.results[0][0].transcript;
-      setInput((prev) => prev + transcript);
-      if (textareaRef.current) {
-        textareaRef.current.style.height = "auto";
-        textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 150) + "px";
+    if (listening) {
+      isListeningRef.current = false;
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
       }
-    };
-    recog.start();
+      setListening(false);
+      return;
+    }
+
+    try {
+      const recog = new SpeechRecognition();
+      recog.continuous = true;
+      recog.interimResults = true;
+      recog.lang = selectedVoiceLang;
+      recognitionRef.current = recog;
+      isListeningRef.current = true;
+
+      recog.onstart = () => {
+        setListening(true);
+      };
+
+      let baseInput = input ? input + " " : "";
+
+      recog.onresult = (event) => {
+        let currentTranscript = "";
+        for (let i = 0; i < event.results.length; i++) {
+          currentTranscript += event.results[i][0].transcript;
+        }
+        const fullText = baseInput + currentTranscript;
+        setInput(fullText);
+        if (textareaRef.current) {
+          textareaRef.current.style.height = "auto";
+          textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 150) + "px";
+        }
+      };
+
+      recog.onerror = (e) => {
+        console.warn("Speech recognition notice:", e.error);
+        if (e.error === "not-allowed") {
+          alert("Microphone permission denied. Please allow microphone access in your browser address bar.");
+          setListening(false);
+          isListeningRef.current = false;
+        }
+      };
+
+      recog.onend = () => {
+        // If user didn't explicitly click stop, keep listening alive smoothly
+        if (isListeningRef.current) {
+          try {
+            recog.start();
+          } catch (err) {
+            setListening(false);
+            isListeningRef.current = false;
+          }
+        } else {
+          setListening(false);
+        }
+      };
+
+      recog.start();
+    } catch (err) {
+      console.error("Failed to start voice recognition:", err);
+      setListening(false);
+      isListeningRef.current = false;
+    }
   };
 
-  // ─── Voice Output ─────────────────────────────────────────────
+  // ─── Voice Output (Text-to-Speech) ───────────────────────────
   const speakMessage = (text, idx) => {
     window.speechSynthesis.cancel();
-    if (speakingIdx === idx) { setSpeakingIdx(null); return; }
+    if (speakingIdx === idx) {
+      setSpeakingIdx(null);
+      return;
+    }
     const lang = detectLang(text);
-    const utter = new SpeechSynthesisUtterance(text.replace(/[#*`_~]/g, ""));
+    const cleanText = text.replace(/[#*`_~]/g, "");
+    const utter = new SpeechSynthesisUtterance(cleanText);
     utter.lang = lang;
-    utter.rate = 0.9;
+    utter.rate = 0.95;
     utter.onstart = () => setSpeakingIdx(idx);
     utter.onend = () => setSpeakingIdx(null);
     utter.onerror = () => setSpeakingIdx(null);
@@ -176,15 +235,26 @@ export default function ChatPage() {
           else if (name.includes("loan") && !name.includes("emi")) loan = val;
           else if (name.includes("emi")) emi = val;
         });
-        setFarmProfile({ crops: crop || farmProfile.crops, landSize: land || farmProfile.landSize, district: loc || farmProfile.district, loanAmount: loan || farmProfile.loanAmount, loanEmi: emi || farmProfile.loanEmi });
-        if (loc && loc !== detectedLocation) { setDetectedLocation(loc); loadWeatherForCity(loc); }
+        setFarmProfile({
+          crops: crop || farmProfile.crops,
+          landSize: land || farmProfile.landSize,
+          district: loc || farmProfile.district,
+          loanAmount: loan || farmProfile.loanAmount,
+          loanEmi: emi || farmProfile.loanEmi,
+        });
+        if (loc && loc !== detectedLocation) {
+          setDetectedLocation(loc);
+          loadWeatherForCity(loc);
+        }
         const sampleNews = `Weather forecast for ${loc || detectedLocation}: Moderate rain and humidity expected. Ensure proper soil drainage and inspect crops for pest attacks.`;
         const notifRes = await getPersonalizedNotification(userId, activeConvId || "default", arts, sampleNews);
         if (notifRes.success) setLiveAdvisory(notifRes.notification_message);
       }
       const sumRes = await getConversationSummary(msgsList);
       if (sumRes.success) setSummaryText(sumRes.summary);
-    } catch (e) { console.error("Error analyzing farm context:", e); }
+    } catch (e) {
+      console.error("Error analyzing farm context:", e);
+    }
     setIntelLoading(false);
   };
 
@@ -203,7 +273,10 @@ export default function ChatPage() {
       const data = await getUserConversations(userId);
       const api = Array.isArray(data) ? data : data.conversations || [];
       const merged = [...new Set([...local, ...api])];
-      if (merged.length > 0) { setConversations(merged); saveConvsList(merged); }
+      if (merged.length > 0) {
+        setConversations(merged);
+        saveConvsList(merged);
+      }
     } catch (e) {}
   };
 
@@ -211,35 +284,62 @@ export default function ChatPage() {
   const saveMsgs = (cid, msgs) => localStorage.setItem(msgsKey(cid), JSON.stringify(msgs));
 
   const startNewConversation = () => {
-    setActiveConvId(genConvId()); setMessages([]); setLastAgent(null); setBotTyping(false);
+    setActiveConvId(genConvId());
+    setMessages([]);
+    setLastAgent(null);
+    setBotTyping(false);
     setFarmProfile({ crops: null, landSize: null, district: null, loanAmount: null, loanEmi: null });
-    setRawArtefacts([]); setLiveAdvisory(null); setSummaryText(null);
+    setRawArtefacts([]);
+    setLiveAdvisory(null);
+    setSummaryText(null);
   };
 
   const loadConversation = async (convId) => {
-    setActiveConvId(convId); setMessages([]); setLastAgent(null); setBotTyping(false);
+    setActiveConvId(convId);
+    setMessages([]);
+    setLastAgent(null);
+    setBotTyping(false);
     setFarmProfile({ crops: null, landSize: null, district: null, loanAmount: null, loanEmi: null });
-    setRawArtefacts([]); setLiveAdvisory(null); setSummaryText(null);
+    setRawArtefacts([]);
+    setLiveAdvisory(null);
+    setSummaryText(null);
     const saved = JSON.parse(localStorage.getItem(msgsKey(convId)) || "[]");
-    if (saved.length > 0) { setMessages(saved); analyzeFarmContext(saved); }
+    if (saved.length > 0) {
+      setMessages(saved);
+      analyzeFarmContext(saved);
+    }
     try {
       const data = await getConversationHistory(userId, convId);
       if (data?.messages?.length > 0) {
-        const formatted = data.messages.map((m) => ({ role: m.role === "user" ? "user" : "bot", content: m.content || m.text || "", time: m.time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), agent: m.agent || null }));
-        setMessages(formatted); saveMsgs(convId, formatted);
+        const formatted = data.messages.map((m) => ({
+          role: m.role === "user" ? "user" : "bot",
+          content: m.content || m.text || "",
+          time: m.time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          agent: m.agent || null,
+        }));
+        setMessages(formatted);
+        saveMsgs(convId, formatted);
         if (formatted[0]?.content) setConvTitles((prev) => ({ ...prev, [convId]: formatted[0].content }));
         analyzeFarmContext(formatted);
       }
-    } catch (e) { console.error("Failed to sync conversation:", e); }
+    } catch (e) {
+      console.error("Failed to sync conversation:", e);
+    }
   };
 
   const handleDeleteConv = async (e, convId) => {
     e.stopPropagation();
-    try { await deleteConversation(userId, convId); } catch (e) {}
+    try {
+      await deleteConversation(userId, convId);
+    } catch (e) {}
     localStorage.removeItem(msgsKey(convId));
     const updated = conversations.filter((c) => c !== convId);
-    setConversations(updated); saveConvsList(updated);
-    if (activeConvId === convId) { setActiveConvId(null); setMessages([]); }
+    setConversations(updated);
+    saveConvsList(updated);
+    if (activeConvId === convId) {
+      setActiveConvId(null);
+      setMessages([]);
+    }
   };
 
   const handleSend = async (text) => {
@@ -249,36 +349,64 @@ export default function ChatPage() {
     if (!activeConvId) {
       setActiveConvId(convId);
       const updatedConvs = [convId, ...conversations.filter((c) => c !== convId)];
-      setConversations(updatedConvs); saveConvsList(updatedConvs);
+      setConversations(updatedConvs);
+      saveConvsList(updatedConvs);
       setConvTitles((prev) => ({ ...prev, [convId]: query }));
     } else if (!conversations.includes(convId)) {
-      const updatedConvs = [convId, ...conversations]; setConversations(updatedConvs); saveConvsList(updatedConvs);
+      const updatedConvs = [convId, ...conversations];
+      setConversations(updatedConvs);
+      saveConvsList(updatedConvs);
     }
     setInput("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     const userMsg = { role: "user", content: query, time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
     const newMsgs = [...messages, userMsg];
-    setMessages(newMsgs); setBotTyping(true);
+    setMessages(newMsgs);
+    setBotTyping(true);
     try {
       const data = await sendChatMessage(query, userId, convId);
-      const botMsg = { role: "bot", content: data.response || "I could not process your request. Please try again.", time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), agent: data.agent_used };
+      const botMsg = {
+        role: "bot",
+        content: data.response || "I could not process your request. Please try again.",
+        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        agent: data.agent_used,
+      };
       const finalMsgs = [...newMsgs, botMsg];
-      setMessages(finalMsgs); saveMsgs(convId, finalMsgs);
+      setMessages(finalMsgs);
+      saveMsgs(convId, finalMsgs);
       if (data.agent_used) setLastAgent(data.agent_used);
       analyzeFarmContext(finalMsgs);
     } catch (e) {
-      const errMsg = { role: "bot", content: "Sorry, I could not connect to the server. Please check your connection and try again.", time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
-      const finalMsgs = [...newMsgs, errMsg]; setMessages(finalMsgs); saveMsgs(convId, finalMsgs);
-    } finally { setBotTyping(false); }
+      const errMsg = {
+        role: "bot",
+        content: "Sorry, I could not connect to the server. Please check your connection and try again.",
+        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      };
+      const finalMsgs = [...newMsgs, errMsg];
+      setMessages(finalMsgs);
+      saveMsgs(convId, finalMsgs);
+    } finally {
+      setBotTyping(false);
+    }
   };
 
-  const handleKeyDown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } };
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
   const handleTextareaInput = (e) => {
     setInput(e.target.value);
     e.target.style.height = "auto";
     e.target.style.height = Math.min(e.target.scrollHeight, 150) + "px";
   };
-  const handleLogout = async () => { await logout(); navigate("/"); };
+
+  const handleLogout = async () => {
+    await logout();
+    navigate("/");
+  };
 
   const agentInfo = lastAgent && agentLabels[lastAgent];
   const convLabel = (convId) => {
@@ -294,7 +422,9 @@ export default function ChatPage() {
     <div className="app-layout">
       {/* Sidebar */}
       <aside className="sidebar">
-        <div className="sidebar-header"><div className="sidebar-logo">🌱 Farmer<span>AI</span></div></div>
+        <div className="sidebar-header">
+          <div className="sidebar-logo">🌱 Farmer<span>AI</span></div>
+        </div>
         <div style={{ padding: "0 16px" }}>
           <button className="new-chat-btn" onClick={startNewConversation}>✏️ New Conversation</button>
         </div>
@@ -325,12 +455,12 @@ export default function ChatPage() {
         </div>
       </aside>
 
-      {/* Chat Area */}
+      {/* Main Chat Area */}
       <main className="chat-area">
         <div className="chat-header">
           <div>
             <h2>FarmerAI Assistant</h2>
-            <p>Powered by Google Gemini · Telugu · Hindi · English</p>
+            <p>Powered by Google Gemini · Multilingual Agentic AI</p>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             {agentInfo && <span className={`agent-badge ${agentInfo.class}`}>{agentInfo.label}</span>}
@@ -343,12 +473,13 @@ export default function ChatPage() {
           <div className="welcome-screen">
             <div>
               <h2>Hello, {user?.displayName?.split(" ")[0] || "Farmer"}! 👋</h2>
-              <p>Type or 🎙️ speak in <strong>Telugu, Hindi or English</strong> — I understand all!</p>
+              <p>Type or 🎙️ speak in <strong>English, Telugu or Hindi</strong> — I understand all!</p>
             </div>
             <div className="suggestion-grid">
               {SUGGESTIONS.map((s, i) => (
                 <div className="suggestion-card" key={i} onClick={() => handleSend(s.text)}>
-                  <span className="icon">{s.icon}</span><p>{s.text}</p>
+                  <span className="icon">{s.icon}</span>
+                  <p>{s.text}</p>
                 </div>
               ))}
             </div>
@@ -392,23 +523,56 @@ export default function ChatPage() {
           </div>
         )}
 
+        {/* Input Area */}
         <div className="chat-input-area">
-          {listening && (
-            <div style={{ textAlign: "center", fontSize: "13px", color: "#ef4444", marginBottom: "8px", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
-              <span style={{ width: 8, height: 8, background: "#ef4444", borderRadius: "50%", display: "inline-block", animation: "mic-pulse 1s infinite" }} />
-              Listening... Speak now in Telugu, Hindi or English
+          {/* Voice Language Picker & Active Indicator */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px", padding: "0 4px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>🎙️ Voice Language:</span>
+              <div style={{ display: "flex", gap: "4px" }}>
+                {VOICE_LANGS.map((lang) => (
+                  <button
+                    key={lang.code}
+                    onClick={() => setSelectedVoiceLang(lang.code)}
+                    style={{
+                      padding: "2px 8px",
+                      fontSize: "11px",
+                      borderRadius: "6px",
+                      border: selectedVoiceLang === lang.code ? "1px solid var(--green)" : "1px solid var(--border)",
+                      background: selectedVoiceLang === lang.code ? "rgba(34,197,94,0.15)" : "transparent",
+                      color: selectedVoiceLang === lang.code ? "var(--green-light)" : "var(--text-muted)",
+                      cursor: "pointer",
+                      fontWeight: selectedVoiceLang === lang.code ? "600" : "400",
+                    }}
+                  >
+                    {lang.label}
+                  </button>
+                ))}
+              </div>
             </div>
-          )}
+
+            {listening && (
+              <div style={{ fontSize: "12px", color: "#ef4444", display: "flex", alignItems: "center", gap: "6px", fontWeight: "600" }}>
+                <span style={{ width: 8, height: 8, background: "#ef4444", borderRadius: "50%", display: "inline-block", animation: "mic-pulse 1s infinite" }} />
+                Listening in {VOICE_LANGS.find(l => l.code === selectedVoiceLang)?.label}...
+              </div>
+            )}
+          </div>
+
           <div className="chat-input-wrapper">
             {voiceSupported && (
-              <button className={`mic-btn ${listening ? "listening" : ""}`} onClick={startListening} title={listening ? "Stop listening" : "Speak in Telugu, Hindi or English"}>
+              <button
+                className={`mic-btn ${listening ? "listening" : ""}`}
+                onClick={startListening}
+                title={listening ? "Click to stop listening" : "Click to speak"}
+              >
                 {listening ? "⏹" : "🎙️"}
               </button>
             )}
             <textarea
               ref={textareaRef}
               className="chat-input"
-              placeholder={voiceSupported ? "Type or 🎙️ speak in Telugu, Hindi or English..." : "Ask about crops, loans, weather, schemes..."}
+              placeholder={voiceSupported ? "Type or click 🎙️ to speak..." : "Ask about crops, loans, weather, schemes..."}
               value={input}
               onChange={handleTextareaInput}
               onKeyDown={handleKeyDown}
@@ -419,7 +583,7 @@ export default function ChatPage() {
               <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" /></svg>
             </button>
           </div>
-          <p className="input-hint">Enter to send · Shift+Enter for new line · 🎙️ Mic for voice · 🔊 Speak to read responses</p>
+          <p className="input-hint">Enter to send · Shift+Enter for new line · 🎙️ Mic for real-time speech input · 🔊 Speak to listen</p>
         </div>
       </main>
 
@@ -500,7 +664,7 @@ export default function ChatPage() {
                     <div>
                       <h4 style={{ fontSize: "14px", color: "var(--green-light)", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.5px" }}>AI Generated Memory Summary</h4>
                       {summaryText ? (
-                        <p style={{ background: "rgba(255,255,255,0.03)", padding: "16px", borderRadius: "12px", border: "1px solid var(--border)", lineHeight: "1.7", fontSize: "14px" }}>{summaryText}</p>
+                        <p style={{ background: "rgba(255,255,200,0.03)", padding: "16px", borderRadius: "12px", border: "1px solid var(--border)", lineHeight: "1.7", fontSize: "14px" }}>{summaryText}</p>
                       ) : <p style={{ color: "var(--text-muted)", fontSize: "14px" }}>{messages.length === 0 ? "Start chatting to generate an AI summary!" : "Summary is generating... Chat a bit more!"}</p>}
                     </div>
                   )}
