@@ -65,6 +65,50 @@ export const getPersonalizedNotification = async (userId, conversationId, artefa
   return response.data;
 };
 
+// Real-time Free Weather & Geocoding Service (Open-Meteo)
+export const fetchCityWeather = async (cityName) => {
+  try {
+    const geoRes = await axios.get(
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(cityName)}&count=1&language=en&format=json`
+    );
+    if (!geoRes.data?.results || geoRes.data.results.length === 0) {
+      return null;
+    }
+    const { latitude, longitude, name, admin1, country } = geoRes.data.results[0];
+
+    const weatherRes = await axios.get(
+      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&timezone=auto`
+    );
+
+    const current = weatherRes.data?.current;
+    if (!current) return null;
+
+    // Interpret WMO weather code
+    const code = current.weather_code;
+    let condition = "Clear Skies";
+    let icon = "☀️";
+    if (code === 1 || code === 2 || code === 3) { condition = "Partly Cloudy"; icon = "⛅"; }
+    else if (code >= 45 && code <= 48) { condition = "Foggy"; icon = "🌫️"; }
+    else if (code >= 51 && code <= 67) { condition = "Rain / Drizzle"; icon = "🌧️"; }
+    else if (code >= 80 && code <= 82) { condition = "Heavy Showers"; icon = "⛈️"; }
+    else if (code >= 95) { condition = "Thunderstorm"; icon = "⚡"; }
+
+    return {
+      cityName: name,
+      state: admin1 || "",
+      country: country || "",
+      temperature: Math.round(current.temperature_2m),
+      humidity: current.relative_humidity_2m,
+      windSpeed: current.wind_speed_10m,
+      condition,
+      icon,
+    };
+  } catch (e) {
+    console.error("Error fetching weather:", e);
+    return null;
+  }
+};
+
 export const getHealth = async () => {
   const response = await api.get("/health");
   return response.data;
