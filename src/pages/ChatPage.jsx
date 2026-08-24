@@ -37,7 +37,7 @@ export default function ChatPage() {
   const [activeConvId, setActiveConvId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [botTyping, setBotTyping] = useState(false);
   const [lastAgent, setLastAgent] = useState(null);
 
   // Cache for first messages of conversations to show clean labels in sidebar
@@ -47,7 +47,6 @@ export default function ChatPage() {
   const [panelOpen, setPanelOpen] = useState(true);
   const [detectedLocation, setDetectedLocation] = useState("Warangal");
   const [weatherData, setWeatherData] = useState(null);
-  const [weatherLoading, setWeatherLoading] = useState(false);
   const [farmProfile, setFarmProfile] = useState({
     crops: null,
     landSize: null,
@@ -107,14 +106,12 @@ export default function ChatPage() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+  }, [messages, botTyping]);
 
   // Load weather for city
   const loadWeatherForCity = async (city) => {
-    setWeatherLoading(true);
     const data = await fetchCityWeather(city);
     if (data) setWeatherData(data);
-    setWeatherLoading(false);
   };
 
   // Automatically extract farm intelligence when messages change
@@ -203,6 +200,7 @@ export default function ChatPage() {
     setActiveConvId(newId);
     setMessages([]);
     setLastAgent(null);
+    setBotTyping(false);
     setFarmProfile({ crops: null, landSize: null, district: null, loanAmount: null, loanEmi: null });
     setLiveAdvisory(null);
     setSummaryText(null);
@@ -212,15 +210,17 @@ export default function ChatPage() {
     setActiveConvId(convId);
     setMessages([]);
     setLastAgent(null);
+    setBotTyping(false);
 
+    // 1. Instant load from local storage
     const saved = JSON.parse(localStorage.getItem(msgsKey(convId)) || "[]");
     if (saved.length > 0) {
       setMessages(saved);
       analyzeFarmContext(saved);
     }
 
+    // 2. Fetch fresh history from Redis backend in background (silent sync)
     try {
-      setLoading(true);
       const data = await getConversationHistory(userId, convId);
       if (data && data.messages && data.messages.length > 0) {
         const formatted = data.messages.map((m) => ({
@@ -238,8 +238,6 @@ export default function ChatPage() {
       }
     } catch (e) {
       console.error("Failed to sync conversation:", e);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -260,7 +258,7 @@ export default function ChatPage() {
 
   const handleSend = async (text) => {
     const query = (text || input).trim();
-    if (!query || loading) return;
+    if (!query || botTyping) return;
 
     const convId = activeConvId || genConvId();
     let updatedConvs = conversations;
@@ -288,7 +286,7 @@ export default function ChatPage() {
 
     const newMsgs = [...messages, userMsg];
     setMessages(newMsgs);
-    setLoading(true);
+    setBotTyping(true);
 
     try {
       const data = await sendChatMessage(query, userId, convId);
@@ -314,8 +312,9 @@ export default function ChatPage() {
       const finalMsgs = [...newMsgs, errMsg];
       setMessages(finalMsgs);
       saveMsgs(convId, finalMsgs);
+    } finally {
+      setBotTyping(false);
     }
-    setLoading(false);
   };
 
   const handleKeyDown = (e) => {
@@ -425,7 +424,7 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {messages.length === 0 && !loading ? (
+        {messages.length === 0 && !botTyping ? (
           <div className="welcome-screen">
             <div>
               <h2>Hello, {user?.displayName?.split(" ")[0] || "Farmer"}! 👋</h2>
@@ -460,7 +459,7 @@ export default function ChatPage() {
                 </div>
               </div>
             ))}
-            {loading && (
+            {botTyping && (
               <div className="typing-indicator">
                 <div className="msg-avatar" style={{ background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.3)", borderRadius: "50%", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center" }}>
                   🌱
@@ -484,9 +483,9 @@ export default function ChatPage() {
               onChange={handleTextareaInput}
               onKeyDown={handleKeyDown}
               rows={1}
-              disabled={loading}
+              disabled={botTyping}
             />
-            <button className="send-btn" onClick={() => handleSend()} disabled={!input.trim() || loading}>
+            <button className="send-btn" onClick={() => handleSend()} disabled={!input.trim() || botTyping}>
               <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                 <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
               </svg>
