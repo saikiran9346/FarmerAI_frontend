@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import {
   sendChatMessage,
   getUserConversations,
+  getConversationHistory,
   deleteConversation,
   getConversationSummary,
   getConversationArtefacts,
@@ -38,6 +39,9 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false);
   const [lastAgent, setLastAgent] = useState(null);
 
+  // Cache for first messages of conversations to show clean labels in sidebar
+  const [convTitles, setConvTitles] = useState({});
+
   // Insights / Artefacts Modal States
   const [showInsightsModal, setShowInsightsModal] = useState(false);
   const [modalTab, setModalTab] = useState("summary"); // 'summary' | 'artefacts' | 'alerts'
@@ -54,11 +58,45 @@ export default function ChatPage() {
   const msgsKey = (cid) => `farmerai_msgs_${userId}_${cid}`;
   const userInitial = (user?.displayName || user?.email || "U")[0].toUpperCase();
 
+  // Load conversations list on mount
   useEffect(() => {
     const local = JSON.parse(localStorage.getItem(convsKey) || "[]");
     if (local.length > 0) setConversations(local);
     syncConversations(local);
   }, []);
+
+  // Fetch titles for each conversation in sidebar
+  useEffect(() => {
+    conversations.forEach((cid) => {
+      if (!convTitles[cid]) {
+        // Try local storage first
+        const localMsgs = JSON.parse(localStorage.getItem(msgsKey(cid)) || "[]");
+        if (localMsgs.length > 0 && localMsgs[0].content) {
+          setConvTitles((prev) => ({ ...prev, [cid]: localMsgs[0].content }));
+        } else {
+          // Fetch from API in background to get title
+          getConversationHistory(userId, cid)
+            .then((data) => {
+              if (data && data.messages && data.messages.length > 0) {
+                const firstMsg = data.messages[0];
+                const content = firstMsg.content || firstMsg.text || "";
+                if (content) {
+                  setConvTitles((prev) => ({ ...prev, [cid]: content }));
+                  // Sync to local storage for speed
+                  const formatted = data.messages.map((m) => ({
+                    role: m.role === "user" ? "user" : "bot",
+                    content: m.content || m.text || "",
+                    time: m.time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                  }));
+                  localStorage.setItem(msgsKey(cid), JSON.stringify(formatted));
+                }
+              }
+            })
+            .catch(() => {});
+        }
+      }
+    });
+  }, [conversations]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -71,7 +109,7 @@ export default function ChatPage() {
       const merged = [...new Set([...local, ...api])];
       if (merged.length > 0) {
         setConversations(merged);
-        localStorage.setItem(convsKey, JSON.stringify(merged));
+        saveConvsList(merged);
       }
     } catch (e) {}
   };
@@ -84,10 +122,6 @@ export default function ChatPage() {
     localStorage.setItem(msgsKey(cid), JSON.stringify(msgs));
   };
 
-  const loadMsgs = (cid) => {
-    return JSON.parse(localStorage.getItem(msgsKey(cid)) || "[]");
-  };
-
   const startNewConversation = () => {
     const newId = genConvId();
     setActiveConvId(newId);
@@ -98,14 +132,44 @@ export default function ChatPage() {
     setNotificationData(null);
   };
 
-  const loadConversation = (convId) => {
+  const loadConversation = async (convId) => {
     setActiveConvId(convId);
-    const saved = loadMsgs(convId);
-    setMessages(saved);
+    setMessages([]);
     setLastAgent(null);
     setSummaryData(null);
     setArtefactsData([]);
     setNotificationData(null);
+
+    // 1. Try local storage first for instant load
+    const saved = JSON.parse(localStorage.getItem(msgsKey(convId)) || "[]");
+    if (saved.length > 0) {
+      setMessages(saved);
+    }
+
+    // 2. Fetch fresh history from Redis backend to sync
+    try {
+      setLoading(true);
+      const data = await getConversationHistory(userId, convId);
+      if (data && data.messages && data.messages.length > 0) {
+        const formatted = data.messages.map((m) => ({
+          role: m.role === "user" ? "user" : "bot",
+          content: m.content || m.text || "",
+          time: m.time || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          agent: m.agent || null,
+        }));
+        setMessages(formatted);
+        saveMsgs(convId, formatted);
+
+        // Update title if changed
+        if (formatted[0]?.content) {
+          setConvTitles((prev) => ({ ...prev, [convId]: formatted[0].content }));
+        }
+      }
+    } catch (e) {
+      console.error("Failed to sync conversation from API:", e);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleDeleteConv = async (e, convId) => {
@@ -135,6 +199,7 @@ export default function ChatPage() {
       updatedConvs = [convId, ...conversations.filter((c) => c !== convId)];
       setConversations(updatedConvs);
       saveConvsList(updatedConvs);
+      setConvTitles((prev) => ({ ...prev, [convId]: query }));
     } else if (!conversations.includes(convId)) {
       updatedConvs = [convId, ...conversations];
       setConversations(updatedConvs);
@@ -231,12 +296,12 @@ export default function ChatPage() {
   const agentInfo = lastAgent && agentLabels[lastAgent];
 
   const convLabel = (convId) => {
+    const title = convTitles[convId];
+    if (title) {
+      return title.slice(0, 32) + (title.length > 32 ? "..." : "");
+    }
     const ts = convId.replace("conv_", "");
     const date = new Date(Number(ts));
-    const saved = loadMsgs(convId);
-    if (saved.length > 0 && saved[0].content) {
-      return saved[0].content.slice(0, 32) + (saved[0].content.length > 32 ? "..." : "");
-    }
     if (!isNaN(date.getTime())) {
       return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
     }

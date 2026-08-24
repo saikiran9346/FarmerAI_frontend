@@ -22,6 +22,11 @@ export const getUserConversations = async (userId) => {
   return response.data;
 };
 
+export const getConversationHistory = async (userId, conversationId) => {
+  const response = await api.get(`/conversations/${userId}/${conversationId}`);
+  return response.data;
+};
+
 export const deleteConversation = async (userId, conversationId) => {
   const response = await api.delete(`/conversations/${userId}/${conversationId}`);
   return response.data;
