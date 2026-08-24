@@ -34,10 +34,18 @@ function genConvId() {
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const voiceSupported = !!SpeechRecognition;
 
-const VOICE_LANGS = [
-  { code: "en-IN", label: "English" },
-  { code: "te-IN", label: "తెలుగు (Telugu)" },
-  { code: "hi-IN", label: "हिंदी (Hindi)" },
+const SUPPORTED_LANGUAGES = [
+  { code: "en-IN", label: "English (India)", native: "English" },
+  { code: "te-IN", label: "Telugu (తెలుగు)", native: "తెలుగు" },
+  { code: "hi-IN", label: "Hindi (हिंदी)", native: "हिंदी" },
+  { code: "ta-IN", label: "Tamil (தமிழ்)", native: "தமிழ்" },
+  { code: "kn-IN", label: "Kannada (ಕನ್ನಡ)", native: "ಕನ್ನಡ" },
+  { code: "ml-IN", label: "Malayalam (മലയാളം)", native: "മലയാളം" },
+  { code: "mr-IN", label: "Marathi (मराठी)", native: "मराठी" },
+  { code: "bn-IN", label: "Bengali (বাংলা)", native: "বাংলা" },
+  { code: "gu-IN", label: "Gujarati (ગુજરાતી)", native: "ગુજરાતી" },
+  { code: "pa-IN", label: "Punjabi (ਪੰਜਾਬੀ)", native: "ਪੰਜਾਬੀ" },
+  { code: "or-IN", label: "Odia (ଓଡ଼ିଆ)", native: "ଓଡ଼ିଆ" },
 ];
 
 function detectLang(text) {
@@ -525,36 +533,39 @@ export default function ChatPage() {
 
         {/* Input Area */}
         <div className="chat-input-area">
-          {/* Voice Language Picker & Active Indicator */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px", padding: "0 4px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>🎙️ Voice Language:</span>
-              <div style={{ display: "flex", gap: "4px" }}>
-                {VOICE_LANGS.map((lang) => (
-                  <button
-                    key={lang.code}
-                    onClick={() => setSelectedVoiceLang(lang.code)}
-                    style={{
-                      padding: "2px 8px",
-                      fontSize: "11px",
-                      borderRadius: "6px",
-                      border: selectedVoiceLang === lang.code ? "1px solid var(--green)" : "1px solid var(--border)",
-                      background: selectedVoiceLang === lang.code ? "rgba(34,197,94,0.15)" : "transparent",
-                      color: selectedVoiceLang === lang.code ? "var(--green-light)" : "var(--text-muted)",
-                      cursor: "pointer",
-                      fontWeight: selectedVoiceLang === lang.code ? "600" : "400",
-                    }}
-                  >
+          {/* All Languages Voice Selector */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px", padding: "0 4px", flexWrap: "wrap", gap: "8px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ fontSize: "12px", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "4px" }}>
+                🎙️ <strong>Speak In:</strong>
+              </span>
+              <select
+                value={selectedVoiceLang}
+                onChange={(e) => setSelectedVoiceLang(e.target.value)}
+                style={{
+                  background: "rgba(34, 197, 94, 0.1)",
+                  border: "1px solid rgba(34, 197, 94, 0.3)",
+                  color: "var(--green-light)",
+                  borderRadius: "8px",
+                  padding: "3px 10px",
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  outline: "none",
+                  cursor: "pointer",
+                }}
+              >
+                {SUPPORTED_LANGUAGES.map((lang) => (
+                  <option key={lang.code} value={lang.code} style={{ background: "#111815", color: "#fff" }}>
                     {lang.label}
-                  </button>
+                  </option>
                 ))}
-              </div>
+              </select>
             </div>
 
             {listening && (
               <div style={{ fontSize: "12px", color: "#ef4444", display: "flex", alignItems: "center", gap: "6px", fontWeight: "600" }}>
                 <span style={{ width: 8, height: 8, background: "#ef4444", borderRadius: "50%", display: "inline-block", animation: "mic-pulse 1s infinite" }} />
-                Listening in {VOICE_LANGS.find(l => l.code === selectedVoiceLang)?.label}...
+                Listening in {SUPPORTED_LANGUAGES.find(l => l.code === selectedVoiceLang)?.native}...
               </div>
             )}
           </div>
